@@ -1,6 +1,6 @@
 # TLS
 # 
-# This module exports the TLSSocket class which lets you wrap a TcpClient to allow for TLS communication (HTTPS/WSS)
+# This module exports the TLSSocket class which lets you create encrypted TCP sockets (HTTPS/WSS)
 import extern "ssl"
 import extern "crypto"
 
@@ -9,180 +9,147 @@ import std.string(String)
 import std.fs.file(WriteOnlyFile)
 import std.json(Json)
 import std.io(Read, Write, Error)
-
-class pub extern CRYPTO_EX_DATA {
-  let @data: Int32
-}
-
-class pub extern BIO_METHOD {
-  let @data: UInt64
-}
-
-class pub extern BIO {
-    let pub @method: Pointer[mut BIO_METHOD]
-    let pub @callback: UInt64
-    let pub @cb_arg: Pointer[mut UInt8]
-    let pub @init: Int32
-    let pub @shutdown: Int32
-    let pub @flags: Int32
-    let pub @retry_reason: Int32
-    let pub @num: Int32
-    let pub @ptr: Pointer[mut UInt8]
-    let pub @next_bio: Pointer[mut BIO]
-    let pub @prev_bio: Pointer[mut BIO]
-    let pub @references: Int32
-    let pub @num_read: UInt64
-    let pub @num_write: UInt64
-    let pub @ex_data: CRYPTO_EX_DATA
-}
+import std.time(ToInstant)
 
 class extern SSL_METHOD {
   let @data: Int32
 }
 
-class extern SSL_CTX {
-  let @data: UInt64
+class pub extern SockAddrIn {
+  let pub @sin_family: Int16
+  let pub @sin_port: Int16
+  let pub @sin_addr: UInt32
+  let pub @sin_zero: Int64
 }
 
-class extern STACK_SSL_CIPHER {
-  let @data: UInt64
+class pub extern Timeval {
+  # Seconds
+  let pub @tv_sec: Int64
+  # Micros
+  let pub @tv_usec: Int64
 }
 
-# c_char = UInt8
-# c_void = UInt8
-# c_int = Int32
-# c_uint = UInt32
-# c_ulong = UInt64
-# c_long = Int64
-# size_t = UInt64
-
-class pub extern SSL {
-    let @version: Int32
-    let @method: Pointer[SSL_METHOD]
-    let @rbio: Pointer[mut BIO]
-    let @wbio: Pointer[mut BIO]
-    let @bbio: Pointer[mut BIO]
-    let pub @server: Int32
-    let @s3: Pointer[mut UInt8]
-    let @d1: Pointer[mut UInt8]
-    let @param: Pointer[mut UInt8]
-    let @cipher_list: Pointer[mut STACK_SSL_CIPHER]
-    let @cert: Pointer[mut UInt8]
-    let @sid_ctx_length: UInt32
-    let @sid_ctx: UInt64
-    let @session: UInt64 # Pointer[mut SSL_SESSION]
-    let @verify_mode: Int32
-    let @error: Int32
-    let @error_code: Int32
-    let @ctx: Pointer[mut UInt64] # Pointer[mut SSL_CTX]
-    let @verify_result: Int64
-    let @references: Int32
-    let @client_version: Int32
-    let @max_send_fragment: UInt32
-    let @tlsext_hostname: Pointer[mut UInt8]
-    let @tlsext_status_type: Int32
-    let @initial_ctx: Pointer[mut UInt64] # Pointer[mut SSL_CTX]
-    let @enc_read_ctx: Pointer[mut UInt64] # Pointer[mut EVP_CIPHER_CTX]
-    let @read_hash: Pointer[mut UInt64] # Pointer[mut EVP_MD_CTX]
-    let @internal: Pointer[mut UInt8]
-}
+fn extern close(fd: Int32) -> Int32
+fn extern socket(family: Int32, type: Int32, protocol: Int32) -> Int32
+fn extern connect(socket: Int32, address: Pointer[SockAddrIn], size: Int32) -> Int32
+fn extern htons(host: UInt16) -> UInt16
+fn extern setsockopt(socket: Int32, level: Int32, option_name: Int32, option_value: Pointer[Timeval], option_len: Int32) -> Int32
 
 fn extern TLS_method() -> Pointer[SSL_METHOD]
-fn extern SSL_CTX_new(method: Pointer[SSL_METHOD]) -> Pointer[mut SSL_CTX]
-fn extern SSL_new(ctx: Pointer[mut SSL_CTX]) -> Pointer[mut SSL]
+fn extern SSL_CTX_new(method: Pointer[SSL_METHOD]) -> Pointer[UInt8]
+fn extern SSL_new(ctx: Pointer[UInt8]) -> Pointer[UInt8]
+fn extern SSL_set_fd(ssl: Pointer[UInt8], fd: Int32) -> Int32
+fn extern SSL_connect(ssl: Pointer[UInt8]) -> Int32
 
-fn extern BIO_s_mem() -> BIO_METHOD
-fn extern BIO_new(method: BIO_METHOD) -> Pointer[mut BIO]
+fn extern SSL_write(ssl: Pointer[UInt8], buf: Pointer[UInt8], len: Int32) -> Int32
+fn extern SSL_read(ssl: Pointer[UInt8], buf: Pointer[UInt8], len: Int32) -> Int32
 
-fn extern SSL_set_bio(ssl: Pointer[mut SSL], rbio: Pointer[mut BIO], wbio: Pointer[mut BIO]) -> UInt8
-fn extern SSL_set_connect_state(ssl: Pointer[mut SSL]) -> UInt8
-fn extern SSL_do_handshake(ssl: Pointer[mut SSL]) -> Int32
-fn extern SSL_is_init_finished(ssl: Pointer[mut SSL]) -> Int32
-fn extern BIO_read(bio: Pointer[mut BIO], buffer: Pointer[UInt8], len: Int32) -> Int32
-fn extern BIO_write(bio: Pointer[mut BIO], buffer: Pointer[UInt8], len: Int32) -> Int32
+fn extern SSL_free(ssl: Pointer[UInt8]) -> UInt8
+fn extern SSL_CTX_free(ctx: Pointer[UInt8]) -> UInt8
 
-fn extern SSL_get_error(ssl: Pointer[mut SSL], ret: Int32) -> Int32
+fn extern SSL_CIPHER_get_name(ssl: Pointer[UInt8]) -> Pointer[UInt8]
+fn extern SSL_get_current_cipher(ssl: Pointer[UInt8]) -> Pointer[UInt8]
 
-fn extern SSL_CTX_set_verify(ctx: Pointer[mut SSL_CTX], mode: Int32, verify_callback: UInt64) -> UInt8
+import std.time(Duration, Instant)
+import std.process(sleep)
+import std.drop(Drop)
+import std.net.ip(IpAddress)
+import std.int(Format)
 
-fn extern SSL_write(ssl: Pointer[mut SSL], buf: Pointer[UInt8], len: Int32) -> Int32
-fn extern SSL_read(ssl: Pointer[mut SSL], buf: Pointer[UInt8], len: Int32) -> Int32
+import ws(Timeoutable)
 
 let SSL_ERROR_SSL = 1
 let SSL_ERROR_WANT_READ = 2
 let SSL_ERROR_WANT_WRITE = 3
 
+let AF_INET = 2
+let SOCK_STREAM = 1
+
+
+# TODO Implement being able to re-use SSL contexts
+
 class pub TLSSocket {
-  let pub @ssl: mut Pointer[mut SSL]
-  let pub @bio_in: mut Pointer[mut BIO]
-  let pub @bio_out: mut Pointer[mut BIO]
-  let pub @client: TcpClient
-  let pub @ctx: mut Pointer[mut SSL_CTX]
+  # TODO Fix these
+  let pub @socket: Int32
+  let pub @ssl: Pointer[UInt8]
+  let pub @ctx: Pointer[UInt8]
 
-  fn pub static new(client: TcpClient) -> TLSSocket {
-    let ctx = SSL_CTX_new(TLS_method())
-    SSL_CTX_set_verify(ctx, 0 as Int32, 0 as UInt64)
-    let ssl = SSL_new(ctx)
-    let bio_in = BIO_new(BIO_s_mem())
-    let bio_out = BIO_new(BIO_s_mem())
-    SSL_set_bio(ssl, bio_in, bio_out)
-    SSL_set_connect_state(ssl)
-    # Start TLS handshake
-    loop {
-      let ret = SSL_do_handshake(ssl) as Int
-      if (ret == 1) { break }
+  fn static ip_v4_to_uint32(ip: IpAddress) -> UInt32 {
+    # I think IpAddress.to_array or IpAddress.to_byte_array should be in std
+    let parts = ip.to_string.split(".").map fn (part) {
+      Int.parse(part, Format.Decimal).get
+    }.to_array
+    # I wonder if there's a better way
+    return (
+      (parts.get(3) << 24) >>> 0 |
+      (parts.get(2) << 16) >>> 0 |
+      (parts.get(1) <<  8) >>> 0 |
+       parts.get(0)
+    ) as UInt32
+  }
 
-      let buf = ByteArray.filled(0, 4096)
-      let len = BIO_read(bio_out, buf.to_pointer, 4096 as Int32) as Int
-      client.write_bytes(buf.slice(0, len)).get
+  fn pub get_cipher -> String {
+    let name = SSL_CIPHER_get_name(SSL_get_current_cipher(@ssl))
+    String.from_pointer(name)
+  }
 
-      let inbuf = ByteArray.new
-      let goth = client.read(mut inbuf, size: 4096).get
-      BIO_write(bio_in, inbuf.to_pointer, goth as Int32)
+  # TODO Handle several possible errors
+  fn pub static new(ip: IpAddress, port: Int) -> Result[TLSSocket, String] {
+    if ip.v4?.false? {
+      throw "TLSSocket only supports IPv4 at the moment."
     }
-    # End TLS handshake
-    return TLSSocket(ssl, bio_in, bio_out, client, ctx)
+    # If it's -1 there's an error
+    let sock = socket(AF_INET as Int32, SOCK_STREAM as Int32, 0 as Int32)
+
+    let server_addr = SockAddrIn(
+      sin_family: AF_INET as Int16,
+      sin_port: htons(443 as UInt16) as Int16,
+      sin_addr: ip_v4_to_uint32(ip),
+      sin_zero: 0 as Int64
+    )
+
+    # If it's < 0 then there's an error
+    connect(sock, mut server_addr, 16 as Int32)
+
+    let ctx = SSL_CTX_new(TLS_method())
+    let ssl = SSL_new(ctx)
+
+    # If return value = 0 then there's an error
+    SSL_set_fd(ssl, sock)
+
+    # If it's <= 0 there's an error
+    SSL_connect(ssl)
+
+    return Result.Ok(TLSSocket(sock, ssl, ctx))
   }
 }
 
 impl Read for TLSSocket {
   fn pub mut read(into: mut ByteArray, size: Int) -> Result[Int, Error] {
-    let mut response = ByteArray.filled(0, 4096)
-    loop {
-      let received = SSL_read(@ssl, response.to_pointer, (response.size - 1) as Int32)
-      let rcv = received as Int
-      if rcv > 0 {
-        let r = response.clone.slice(0, rcv)
-        r.iter.each_with_index fn(index, byte) {
-          into.set(index, byte)
-        }
-        return Result.Ok(rcv)
-      } else {
-        # TODO We could handle SSL_get_error here
+    let received = ByteArray.filled(0, size)
+    let got = SSL_read(@ssl, received.to_pointer, size as Int32) as Int
 
-        let inbuf = ByteArray.new
-        let goth = @client.read(mut inbuf, size: 4096).get
-        if goth > 0 {
-          BIO_write(@bio_in, inbuf.to_pointer, goth as Int32)
-        }
-      }
+    if got > 0 {
+      received.resize(got, 0)
+      into.append(received)
+      Result.Ok(got)
+    } else {
+      # TODO Should call SSL_get_error() and act accordingly
+      Result.Error(Error.Other(got))
     }
-    # TODO Return a better error
-    return Result.Error(Error.Other(55))
   }
 }
 
 impl Write for TLSSocket {
   fn pub mut write_bytes(bytes: ref ByteArray) -> Result[Nil, Error] {
-    SSL_write(@ssl, bytes.to_pointer, bytes.size as Int32)
-    let buf = ByteArray.filled(0, 4096)
-    let len = BIO_read(@bio_out, buf.to_pointer, buf.size as Int32) as Int
-    if len > 0 {
-      let h = @client.write_bytes(buf.slice(0, len)).get
-      return Result.Ok(nil)
+    let wrote = SSL_write(@ssl, bytes.to_pointer, bytes.size as Int32) as Int
+
+    if wrote > 0 {
+      Result.Ok(nil)
+    } else {
+      # TODO Should call SSL_get_error() and act accordingly
+      Result.Error(Error.Other(wrote))
     }
-    # TODO Return a better error
-    return Result.Error(Error.Other(66))
   }
 
   fn pub mut write_string(string: String) -> Result[Nil, Error] {
@@ -192,6 +159,30 @@ impl Write for TLSSocket {
   fn pub mut flush -> Result[Nil, Error] {
     # TODO
     Result.Ok(nil)
+  }
+}
+
+impl Drop for TLSSocket {
+  fn mut drop {
+    SSL_free(@ssl)
+    close(@socket)
+    SSL_CTX_free(@ctx)
+  }
+}
+
+impl Timeoutable for TLSSocket {
+  fn pub mut set_timeout(ms: Int) {
+    let secs = ms / 1000 as Int64
+    let micros = ms % 1000 as Int64
+    let awa = Timeval(
+      tv_sec: secs as Int64,
+      tv_usec: micros as Int64
+    )
+    # 1 = SOL_SOCKET
+    # 66 = SO_RCVTIMEO
+    # 16 = sizeof(Timeval)
+    setsockopt(@socket, 1 as Int32, 66 as Int32, mut awa, 16 as Int32)
+    # TODO Handle error (Error.last_os_error)
   }
 }
 

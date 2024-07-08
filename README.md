@@ -1,12 +1,15 @@
 # Inko TLS
-This is an Inko package that provides a wrapper around `TcpClient` to allow for TLS communication (https/wss)
+> [!WARNING]  
+> This is a WIP. Some things might not work as described.
+
+This is an Inko package that lets you create TCP sockets with TLS
 
 ## Examples
 ```js
+import std.net.ip(IpAddress)
 import tls(TLSSocket)
 
-let client = TcpClient.new(ip, port).get
-let sock = TLSSocket.new(client)
+let sock = TLSSocket.new(IpAddress.v4(127, 0, 0, 1), 443)
 ```
 You can then use `sock.write_bytes` or `sock.write_string` and get a response with `sock.read`.
 
