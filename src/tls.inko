@@ -1,15 +1,17 @@
 # TLS
 # 
 # This module exports the TLSSocket class which lets you create encrypted TCP sockets (HTTPS/WSS)
-import extern "ssl"
 import extern "crypto"
+import extern "ssl"
 
-import std.net.socket(TcpClient)
-import std.string(String)
-import std.fs.file(WriteOnlyFile)
-import std.json(Json)
-import std.io(Read, Write, Error)
-import std.time(ToInstant)
+import std.io (Error, Read, Write)
+import std.string (String)
+import std.drop (Drop)
+import std.int (Format)
+import std.net.ip (IpAddress)
+import std.process (sleep)
+
+import ws (Timeoutable)
 
 class extern SSL_METHOD {
   let @data: Int32
@@ -30,44 +32,59 @@ class pub extern Timeval {
 }
 
 fn extern close(fd: Int32) -> Int32
-fn extern socket(family: Int32, type: Int32, protocol: Int32) -> Int32
-fn extern connect(socket: Int32, address: Pointer[SockAddrIn], size: Int32) -> Int32
-fn extern htons(host: UInt16) -> UInt16
-fn extern setsockopt(socket: Int32, level: Int32, option_name: Int32, option_value: Pointer[Timeval], option_len: Int32) -> Int32
 
-fn extern TLS_method() -> Pointer[SSL_METHOD]
+fn extern socket(family: Int32, type: Int32, protocol: Int32) -> Int32
+
+fn extern connect(
+  socket: Int32,
+  address: Pointer[SockAddrIn],
+  size: Int32,
+) -> Int32
+
+fn extern htons(host: UInt16) -> UInt16
+
+fn extern setsockopt(
+  socket: Int32,
+  level: Int32,
+  option_name: Int32,
+  option_value: Pointer[Timeval],
+  option_len: Int32,
+) -> Int32
+
+fn extern TLS_method -> Pointer[SSL_METHOD]
+
 fn extern SSL_CTX_new(method: Pointer[SSL_METHOD]) -> Pointer[UInt8]
+
 fn extern SSL_new(ctx: Pointer[UInt8]) -> Pointer[UInt8]
+
 fn extern SSL_set_fd(ssl: Pointer[UInt8], fd: Int32) -> Int32
+
 fn extern SSL_connect(ssl: Pointer[UInt8]) -> Int32
 
-fn extern SSL_write(ssl: Pointer[UInt8], buf: Pointer[UInt8], len: Int32) -> Int32
-fn extern SSL_read(ssl: Pointer[UInt8], buf: Pointer[UInt8], len: Int32) -> Int32
+fn extern SSL_write(
+  ssl: Pointer[UInt8],
+  buf: Pointer[UInt8],
+  len: Int32,
+) -> Int32
+
+fn extern SSL_read(
+  ssl: Pointer[UInt8],
+  buf: Pointer[UInt8],
+  len: Int32,
+) -> Int32
 
 fn extern SSL_free(ssl: Pointer[UInt8]) -> UInt8
+
 fn extern SSL_CTX_free(ctx: Pointer[UInt8]) -> UInt8
 
 fn extern SSL_CIPHER_get_name(ssl: Pointer[UInt8]) -> Pointer[UInt8]
+
 fn extern SSL_get_current_cipher(ssl: Pointer[UInt8]) -> Pointer[UInt8]
-
-import std.time(Duration, Instant)
-import std.process(sleep)
-import std.drop(Drop)
-import std.net.ip(IpAddress)
-import std.int(Format)
-
-import ws(Timeoutable)
-
-let SSL_ERROR_SSL = 1
-let SSL_ERROR_WANT_READ = 2
-let SSL_ERROR_WANT_WRITE = 3
 
 let AF_INET = 2
 let SOCK_STREAM = 1
 
-
 # TODO Implement being able to re-use SSL contexts
-
 class pub TLSSocket {
   # TODO Fix these
   let pub @socket: Int32
@@ -76,28 +93,34 @@ class pub TLSSocket {
 
   fn static ip_v4_to_uint32(ip: IpAddress) -> UInt32 {
     # I think IpAddress.to_array or IpAddress.to_byte_array should be in std
-    let parts = ip.to_string.split(".").map fn (part) {
-      Int.parse(part, Format.Decimal).get
-    }.to_array
+    let parts = ip
+      .to_string
+      .split('.')
+      .map(fn (part) { Int.parse(part, Format.Decimal).get })
+      .to_array
     # I wonder if there's a better way
     return (
-      (parts.get(3) << 24) >>> 0 |
-      (parts.get(2) << 16) >>> 0 |
-      (parts.get(1) <<  8) >>> 0 |
-       parts.get(0)
-    ) as UInt32
+      (parts.get(3) << 24)
+        >>> 0
+        | (parts.get(2) << 16)
+        >>> 0
+        | (parts.get(1) << 8)
+        >>> 0
+        | parts.get(0)
+    )
+      as UInt32
   }
 
   fn pub get_cipher -> String {
     let name = SSL_CIPHER_get_name(SSL_get_current_cipher(@ssl))
+
     String.from_pointer(name)
   }
 
   # TODO Handle several possible errors
   fn pub static new(ip: IpAddress, port: Int) -> Result[TLSSocket, String] {
-    if ip.v4?.false? {
-      throw "TLSSocket only supports IPv4 at the moment."
-    }
+    if ip.v4?.false? { throw 'TLSSocket only supports IPv4 at the moment.' }
+
     # If it's -1 there's an error
     let sock = socket(AF_INET as Int32, SOCK_STREAM as Int32, 0 as Int32)
 
@@ -105,7 +128,7 @@ class pub TLSSocket {
       sin_family: AF_INET as Int16,
       sin_port: htons(443 as UInt16) as Int16,
       sin_addr: ip_v4_to_uint32(ip),
-      sin_zero: 0 as Int64
+      sin_zero: 0 as Int64,
     )
 
     # If it's < 0 then there's an error
@@ -174,10 +197,7 @@ impl Timeoutable for TLSSocket {
   fn pub mut set_timeout(ms: Int) {
     let secs = ms / 1000 as Int64
     let micros = ms % 1000 as Int64
-    let awa = Timeval(
-      tv_sec: secs as Int64,
-      tv_usec: micros as Int64
-    )
+    let awa = Timeval(tv_sec: secs as Int64, tv_usec: micros as Int64)
     # 1 = SOL_SOCKET
     # 66 = SO_RCVTIMEO
     # 16 = sizeof(Timeval)
@@ -186,6 +206,6 @@ impl Timeoutable for TLSSocket {
   }
 }
 
-#
+# 
 # TODO Fix naming, maybe make everything more modular and handle errors
-#
+# 
